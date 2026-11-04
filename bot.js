@@ -76,6 +76,13 @@ function isMod(member) {
     return isAdmin(member) || (modRoleId && member.roles.cache.has(modRoleId));
 }
 
+// for multiple names at once seperated by newlines
+function getNamesFromMessage(message) {
+    const text = message.content.trim().replace(/^\S+/, '');
+    const names = text.split(/\r?\n/).map(name => name.trim().toLowerCase()).filter(Boolean);
+    return [...new Set(names)];
+}
+
 // Discord caps messages at 2000 characters, so long lists get split up
 async function sendLong(channel, text) {
     const lines = text.split('\n');
@@ -213,33 +220,37 @@ client.on('messageCreate', async (message) => {
         }
 
         if (command === '!addname') {
-            const nameToAdd = args[1];
-            if (!nameToAdd) return await message.reply('You did not provide a name');
+            const names = getNamesFromMessage(message);
+            if (names.length === 0) return await message.reply('You did not provide a name');
             const banList = getBanList(message.guild.id);
-            if (!banList.includes(nameToAdd.toLowerCase())) {
-                saveBanList(message.guild, [...banList, nameToAdd.toLowerCase()]);
-                return await message.channel.send(`${nameToAdd} has been added to the ban list`);
-            }
-            return await message.channel.send(`${nameToAdd} is already on the ban list`);
+            const added = names.filter(name => !banList.includes(name));
+            const skipped = names.filter(name => banList.includes(name));
+            if (added.length > 0) saveBanList(message.guild, [...banList, ...added]);
+            return await sendLong(message.channel, [
+                added.length ? `${added.join(', ')} ${added.length === 1 ? 'has' : 'have'} been added to the ban list` : '',
+                skipped.length ? `${skipped.join(', ')} ${skipped.length === 1 ? 'is' : 'are'} already on the ban list` : ''
+            ].filter(Boolean).join('\n'));
         }
 
         if (command === '!removename') {
-            const nameToRemove = args[1];
-            if (!nameToRemove) return await message.reply('You did not provide a name');
+            const names = getNamesFromMessage(message);
+            if (names.length === 0) return await message.reply('You did not provide a name');
             const banList = getBanList(message.guild.id);
-            if (banList.includes(nameToRemove.toLowerCase())) {
-                saveBanList(message.guild, banList.filter(name => name !== nameToRemove.toLowerCase()));
-                return await message.channel.send(`${nameToRemove} has been removed from the ban list`);
-            }
-            return await message.channel.send(`${nameToRemove} is not on the ban list`);
+            const removed = names.filter(name => banList.includes(name));
+            const missing = names.filter(name => !banList.includes(name));
+            if (removed.length > 0) saveBanList(message.guild, banList.filter(name => !removed.includes(name)));
+            return await sendLong(message.channel, [
+                removed.length ? `${removed.join(', ')} ${removed.length === 1 ? 'has' : 'have'} been removed from the ban list` : '',
+                missing.length ? `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not on the ban list` : ''
+            ].filter(Boolean).join('\n'));
         }
 
         if (command === '!help') {
             return await message.channel.send(`
 **Available commands:**
 1. **!listnames** - Displays this server's list of banned names
-2. **!addname name** - Adds a new name to the ban list
-3. **!removename name** - Removes a name from the ban list
+2. **!addname name** - Adds a name to the ban list (put more names on new lines to add several)
+3. **!removename name** - Removes a name from the ban list (put more names on new lines to remove several)
 4. **!settings** - Shows this server's mod role and channel
 
 **Administrator only:**
